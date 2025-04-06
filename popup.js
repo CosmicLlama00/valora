@@ -191,6 +191,18 @@ function updateFlag(index, currencyCode) {
   }
 }
 
+function formatNumber(value) {
+  const number = parseFloat(value);
+  if (isNaN(number)) return "";
+
+  const locale = navigator.language || "en-US";
+  const hasDecimals = !Number.isInteger(number);
+  return number.toLocaleString(locale, {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2
+  });
+}
+
 function updateRecentCurrencies(newCode) {
   const recent = JSON.parse(localStorage.getItem("valora_recent")) || [];
   const updated = [newCode, ...recent.filter(code => code !== newCode)].slice(0, 8);
@@ -395,8 +407,12 @@ async function convertFrom(index) {
       const target = document.getElementById(id).value;
       const result = await fetchRate(base, target);
       if (result.rate) {
-        const value = (baseValue * result.rate).toFixed(target === "JPY" ? 0 : 2);
-        document.getElementById(inputs[i]).value = value;
+        const rawValue = baseValue * result.rate;
+        const input = document.getElementById(inputs[i]);
+        if (document.activeElement !== input) {
+          input.blur(); // tira o foco se o usuário não estiver digitando nele
+        }
+        input.value = formatNumber(rawValue);
         updateTimestamp(result.timestamp, result.isStale);
       }
     }
@@ -532,11 +548,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  inputs.forEach((inputId, index) => {
-    document.getElementById(inputId).addEventListener("input", async () => {
-      lastEditedIndex = index;
-      await saveSelections();
+  // 1. Delay na digitação para evitar lentidão
+inputs.forEach((inputId, index) => {
+  let typingTimeout;
+  const input = document.getElementById(inputId);
+  input.addEventListener("input", () => {
+    lastEditedIndex = index;
+    clearTimeout(typingTimeout);
+
+    typingTimeout = setTimeout(() => {
       convertFrom(index);
-    });
+    }, 500);
   });
 });
+
+// 2. Formatar número ao sair do campo
+inputs.forEach((inputId) => {
+  const input = document.getElementById(inputId);
+
+  input.addEventListener("blur", () => {
+    const raw = input.value.replace(/[^0-9.-]/g, "");
+  input.value = formatNumber(raw);
+  });
+});
+})
