@@ -38,6 +38,7 @@ The extension opens as a popup with 4 blocks:
 | `refresh.png`    | Refresh icon for manual update              |
 | `success.png`    | Success state icon (fresh rate)             |
 | `warning.png`    | Warning icon (rate older than 24h)          |
+| `kofi_button.png`| A kofi button :)                            |
 | `README.md`      | This readme file                            |
 
 > ℹ️ The extension **does not require a backend server**, and all currency logic is client-side.
