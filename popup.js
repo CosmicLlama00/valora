@@ -257,18 +257,46 @@ function updateTimestamp(timestamp, isStale = false) {
     hour: "2-digit", minute: "2-digit"
   });
 
-  const icon = hadApiError
-    ? `<img src="warning.png" class="status-icon">`
-    : hadSuccess
-    ? `<img src="success.png" class="status-icon">`
-    : "<span class='status-icon-placeholder'></span>";
+  // Clear existing content
+  el.innerHTML = "";
 
-  el.innerHTML = `
-    <div class="timestamp-wrapper">
-      ${icon}
-      <span>Updated on ${formatted}</span>
-      <img id="refreshIcon" src="refresh.png" title="Force currency update" class="refresh-icon">
-    </div>`;
+  // Create wrapper div
+  const wrapper = document.createElement("div");
+  wrapper.className = "timestamp-wrapper";
+
+  // Status icon
+  if (hadApiError) {
+    const iconImg = document.createElement("img");
+    iconImg.src = "warning.png";
+    iconImg.className = "status-icon";
+    wrapper.appendChild(iconImg);
+  } else if (hadSuccess) {
+    const iconImg = document.createElement("img");
+    iconImg.src = "success.png";
+    iconImg.className = "status-icon";
+    wrapper.appendChild(iconImg);
+  } else {
+    const placeholder = document.createElement("span");
+    placeholder.className = "status-icon-placeholder";
+    wrapper.appendChild(placeholder);
+  }
+
+  // Timestamp text
+  const textSpan = document.createElement("span");
+  textSpan.textContent = `Updated on ${formatted}`;
+  wrapper.appendChild(textSpan);
+
+  // Refresh icon
+  const refreshImg = document.createElement("img");
+  refreshImg.id = "refreshIcon";
+  refreshImg.src = "refresh.png";
+  refreshImg.title = "Force currency update";
+  refreshImg.className = "refresh-icon";
+  wrapper.appendChild(refreshImg);
+
+  // Append to DOM
+  el.appendChild(wrapper);
+
   el.style.color = isStale ? "#a33" : "gray";
 
   const refreshIcon = document.getElementById("refreshIcon");

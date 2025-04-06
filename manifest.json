@@ -7,19 +7,30 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "logo.png",
-      "32": "logo.png",
-      "48": "logo.png",
-      "96": "logo.png"
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "96": "icon-96.png"
     }
   },
   "icons": {
-    "16": "logo.png",
-    "32": "logo.png",
-    "48": "logo.png",
-    "96": "logo.png"
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "96": "icon-96.png"
   },
   "host_permissions": [
     "https://hexarate.paikama.co/*"
-  ]
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["kofi_button.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "valora@temp-email.dev"
+    }
+  }
 }
