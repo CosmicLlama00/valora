@@ -1,9 +1,12 @@
-// popup.js - Valora Currency Converter (com proteção contra target vazio)
+// popup.js – Valora com drag-and-drop, persistência e lógica completa
 
 const selectors = ["currency1", "currency2", "currency3", "currency4"];
 const inputs = ["value1", "value2", "value3", "value4"];
 const flags = ["flag1", "flag2", "flag3", "flag4"];
 let lastEditedIndex = null;
+let isRefreshing = false;
+let hadApiError = false;
+let hadSuccess = false;
 
 const storage = (typeof browser !== "undefined" && browser.storage)
   ? browser.storage
@@ -168,113 +171,13 @@ const currencies = {
   "ZWG": { "name": "Zimbabwe Gold" }
 };
 
-// Adicionar bandeiras com base no código da moeda
 Object.keys(currencies).forEach(code => {
   if (!currencies[code].flag) {
     if (code === "EUR") currencies[code].flag = "eu";
     else if (code === "XCD") currencies[code].flag = "ag";
-    else if (code === "XAF") currencies[code].flag = "cm";
-    else if (code === "XOF") currencies[code].flag = "sn";
-    else if (code === "XPF") currencies[code].flag = "pf";
-    else if (["XDR", "SLE", "UYW", "VED", "ZWG"].includes(code)) {
-      delete currencies[code].flag;
-    } else {
-      currencies[code].flag = code.substring(0, 2).toLowerCase();
-    }
+    else currencies[code].flag = code.substring(0, 2).toLowerCase();
   }
 });
-
-function getRecentCodes() {
-  try {
-    return JSON.parse(localStorage.getItem("valora_recent_codes")) || [];
-  } catch {
-    return [];
-  }
-}
-
-function updateRecentCodes(code) {
-  let recent = getRecentCodes().filter(c => c !== code);
-  recent.unshift(code);
-  if (recent.length > 8) recent = recent.slice(0, 8);
-  localStorage.setItem("valora_recent_codes", JSON.stringify(recent));
-}
-
-async function saveCurrencySelections() {
-  const config = {};
-  selectors.forEach((id, idx) => {
-    config[`slot${idx}`] = document.getElementById(id).value;
-  });
-  inputs.forEach((id, idx) => {
-    config[`value${idx}`] = document.getElementById(id).value;
-  });
-  localStorage.setItem("valora_fallback_selected", JSON.stringify(config));
-  if (storage) await storage.local.set({ valora_selected: config });
-}
-
-async function loadCurrencySelections() {
-  let result = {};
-  if (storage) {
-    result = await new Promise(resolve => {
-      storage.local.get("valora_selected", resolve);
-    });
-    if (result.valora_selected) return result.valora_selected;
-  }
-  try {
-    return JSON.parse(localStorage.getItem("valora_fallback_selected")) || {};
-  } catch {
-    return {};
-  }
-}
-
-async function populateCurrencySelectors() {
-  const sortedCodes = Object.keys(currencies).sort();
-  const recent = getRecentCodes();
-  const savedConfig = await loadCurrencySelections();
-
-  selectors.forEach((id, idx) => {
-    const select = document.getElementById(id);
-    select.innerHTML = "";
-
-    recent.forEach(code => {
-      if (currencies[code]) {
-        const opt = document.createElement("option");
-        opt.value = code;
-        opt.textContent = `${code} – ${currencies[code].name}`;
-        opt.dataset.recent = "true";
-        select.appendChild(opt);
-      }
-    });
-
-    if (recent.length) {
-      const sep = document.createElement("option");
-      sep.disabled = true;
-      sep.textContent = "──────────";
-      select.appendChild(sep);
-    }
-
-    sortedCodes.forEach(code => {
-      const opt = document.createElement("option");
-      opt.value = code;
-      opt.textContent = `${code} – ${currencies[code].name}`;
-      select.appendChild(opt);
-    });
-
-    const defaultCodes = ["USD", "EUR", "GBP", "JPY"];
-    const fallback = defaultCodes[idx] || sortedCodes[0];
-
-    const currentValue = savedConfig[`slot${idx}`];
-    select.value = currentValue && [...select.options].some(o => o.value === currentValue)
-      ? currentValue : fallback;
-
-    updateFlag(idx, select.value);
-  });
-
-  inputs.forEach((id, idx) => {
-    const input = document.getElementById(id);
-    const savedVal = savedConfig[`value${idx}`];
-    if (savedVal !== undefined) input.value = savedVal;
-  });
-}
 
 function updateFlag(index, currencyCode) {
   const flagCode = currencies[currencyCode]?.flag;
@@ -288,107 +191,324 @@ function updateFlag(index, currencyCode) {
   }
 }
 
-function updateTimestamp(date, isStale = false) {
-  const formatted = new Date(date).toLocaleString(undefined, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-  const el = document.getElementById("timestamp");
-  el.textContent = `Updated on ${formatted}`;
-  el.style.color = isStale ? "#a33" : "gray";
+function updateRecentCurrencies(newCode) {
+  const recent = JSON.parse(localStorage.getItem("valora_recent")) || [];
+  const updated = [newCode, ...recent.filter(code => code !== newCode)].slice(0, 8);
+  localStorage.setItem("valora_recent", JSON.stringify(updated));
 }
 
-async function fetchRate(base, target) {
-  if (!base || !target) return { rate: null };
-  const key = `${base}_${target}`;
-  try {
-    const res = await fetch(`https://hexarate.paikama.co/api/rates/latest/${base}?target=${target}`);
-    const data = await res.json();
-    if (!data || data.status_code !== 200) throw new Error("API error");
-    const rate = data.data.mid;
-    if (storage) await storage.local.set({ [key]: { rate, timestamp: Date.now() } });
-    return { rate, source: "api", timestamp: Date.now() };
-  } catch (err) {
-    if (!storage) return { rate: null };
-    const cached = await new Promise(resolve => {
-      storage.local.get(key, resolve);
+async function populateCurrencySelectors() {
+  const sortedCodes = Object.keys(currencies).sort();
+  const saved = JSON.parse(localStorage.getItem("valora_config")) || {};
+  const recent = JSON.parse(localStorage.getItem("valora_recent")) || [];
+
+  selectors.forEach((id, idx) => {
+    const select = document.getElementById(id);
+    select.innerHTML = "";
+
+    recent.forEach(code => {
+      if (currencies[code]) {
+        const opt = document.createElement("option");
+        opt.value = code;
+        opt.textContent = `${code} – ${currencies[code].name}`;
+        select.appendChild(opt);
+      }
     });
-    if (cached && cached[key]) {
-      return { rate: cached[key].rate, source: "cache", timestamp: cached[key].timestamp };
-    } else {
-      return { rate: null };
+
+    if (recent.length > 0) {
+      const separator = document.createElement("option");
+      separator.disabled = true;
+      separator.textContent = "──────────";
+      select.appendChild(separator);
     }
+
+    sortedCodes.forEach(code => {
+      if (!recent.includes(code)) {
+        const opt = document.createElement("option");
+        opt.value = code;
+        opt.textContent = `${code} – ${currencies[code].name}`;
+        select.appendChild(opt);
+      }
+    });
+
+    const value = saved[`slot${idx}`] || ["USD", "EUR", "GBP", "JPY"][idx];
+    select.value = value;
+    updateFlag(idx, value);
+  });
+
+  inputs.forEach((id, idx) => {
+    const input = document.getElementById(id);
+    if (saved[`value${idx}`]) input.value = saved[`value${idx}`];
+  });
+}
+
+async function saveSelections() {
+  const config = {};
+  selectors.forEach((id, i) => config[`slot${i}`] = document.getElementById(id).value);
+  inputs.forEach((id, i) => config[`value${i}`] = document.getElementById(id).value);
+  localStorage.setItem("valora_config", JSON.stringify(config));
+}
+
+function updateTimestamp(timestamp, isStale = false) {
+  const el = document.getElementById("timestamp");
+  const date = new Date(timestamp);
+  const formatted = date.toLocaleString(undefined, {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit"
+  });
+
+  const icon = hadApiError
+    ? `<img src="warning.png" class="status-icon">`
+    : hadSuccess
+    ? `<img src="success.png" class="status-icon">`
+    : "<span class='status-icon-placeholder'></span>";
+
+  el.innerHTML = `
+    <div class="timestamp-wrapper">
+      ${icon}
+      <span>Updated on ${formatted}</span>
+      <img id="refreshIcon" src="refresh.png" title="Force currency update" class="refresh-icon">
+    </div>`;
+  el.style.color = isStale ? "#a33" : "gray";
+
+  const refreshIcon = document.getElementById("refreshIcon");
+  if (refreshIcon) {
+    refreshIcon.addEventListener("click", async () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      refreshIcon.classList.add("spinning");
+      hadApiError = false;
+      hadSuccess = false;
+
+      if (lastEditedIndex !== null) {
+        await convertFrom(lastEditedIndex);
+      } else {
+        await convertFrom(0);
+      }
+
+      isRefreshing = false;
+      refreshIcon.classList.remove("spinning");
+    });
+  }
+
+  const style = document.createElement("style");
+  style.textContent = `
+    .spinning {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .timestamp-wrapper {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 18px;
+      overflow: hidden;
+    }
+    .refresh-icon {
+      width: 12px;
+      height: 12px;
+      cursor: pointer;
+    }
+    .status-icon {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+    .status-icon-placeholder {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+async function fetchRate(from, to) {
+  if (!from || !to) return { rate: null };
+
+  const cacheKey = `valora_rate_${from}_${to}`;
+  const now = Date.now();
+
+  try {
+    const res = await fetch(`https://hexarate.paikama.co/api/rates/latest/${from}?target=${to}`, { timeout: 8000 });
+    const json = await res.json();
+    const rate = json?.data?.mid;
+    if (!rate) throw new Error("No rate");
+
+    const data = { rate, timestamp: now };
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+    localStorage.setItem("valora_last_update", JSON.stringify({ timestamp: now }));
+    hadApiError = false;
+    hadSuccess = true;
+    return { ...data, source: "api" };
+  } catch {
+    hadApiError = true;
+    hadSuccess = false;
+    const cached = JSON.parse(localStorage.getItem(cacheKey));
+    if (cached?.rate) {
+      const isStale = now - cached.timestamp > 24 * 60 * 60 * 1000;
+      updateTimestamp(cached.timestamp, isStale);
+      return { ...cached, source: "cache", isStale };
+    }
+    return { rate: null };
   }
 }
 
 async function convertFrom(index) {
-  const fromCurrency = document.getElementById(selectors[index]).value;
-  const fromValue = parseFloat(document.getElementById(inputs[index]).value);
-  if (isNaN(fromValue)) return;
+  const base = document.getElementById(selectors[index]).value;
+  const baseValue = parseFloat(document.getElementById(inputs[index]).value);
+  if (isNaN(baseValue)) return;
 
-  const promises = selectors.map(async (selId, i) => {
+  await Promise.all(selectors.map(async (id, i) => {
     if (i !== index) {
-      const toCurrency = document.getElementById(selId).value;
-      const result = await fetchRate(fromCurrency, toCurrency);
-      if (result.rate !== null) {
-        const converted = (fromValue * result.rate).toFixed(toCurrency === "JPY" ? 0 : 2);
-        document.getElementById(inputs[i]).value = converted;
-
-        const isStale = result.source === "cache" &&
-          (Date.now() - result.timestamp > 86400000);
-
-        updateTimestamp(result.timestamp, isStale);
-
-        // salva a data da última conversão
-        localStorage.setItem("valora_last_update", JSON.stringify({
-          timestamp: result.timestamp
-        }));
+      const target = document.getElementById(id).value;
+      const result = await fetchRate(base, target);
+      if (result.rate) {
+        const value = (baseValue * result.rate).toFixed(target === "JPY" ? 0 : 2);
+        document.getElementById(inputs[i]).value = value;
+        updateTimestamp(result.timestamp, result.isStale);
       }
     }
+  }));
+
+  await saveSelections();
+}
+
+function createDragHandles() {
+  const containers = document.querySelectorAll(".currency");
+  containers.forEach((el, index) => {
+    const dragArea = el.querySelector(".drag-area");
+
+    dragArea.setAttribute("draggable", true);
+    dragArea.dataset.index = index;
+
+    dragArea.addEventListener("dragstart", e => {
+      e.dataTransfer.setData("text/plain", index);
+      el.classList.add("dragging");
+    });
+
+    dragArea.addEventListener("dragend", () => {
+      el.classList.remove("dragging");
+    });
   });
 
-  await Promise.all(promises);
-  await saveCurrencySelections();
+  const grid = document.querySelector(".grid");
+  grid.querySelectorAll(".currency").forEach(el => {
+    el.addEventListener("dragover", e => e.preventDefault());
+    el.addEventListener("drop", e => {
+      e.preventDefault();
+      const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      const fromEl = grid.children[fromIndex];
+      const toIndex = [...grid.children].indexOf(el);
+      if (fromIndex !== toIndex) {
+        grid.insertBefore(fromEl, fromIndex < toIndex ? el.nextSibling : el);
+        saveCurrencyOrder();
+        createDragHandles();
+      }
+    });
+  });
+}
+
+function saveCurrencyOrder() {
+  const order = [...document.querySelectorAll(".currency")].map(el => el.querySelector("select").id);
+  localStorage.setItem("valora_order", JSON.stringify(order));
+}
+
+function loadCurrencyOrder() {
+  const order = JSON.parse(localStorage.getItem("valora_order"));
+  if (order?.length === 4) {
+    const grid = document.querySelector(".grid");
+    const blocks = {};
+    order.forEach(id => {
+      const block = document.getElementById(id)?.closest(".currency");
+      if (block) blocks[id] = block;
+    });
+    grid.innerHTML = "";
+    order.forEach(id => {
+      if (blocks[id]) grid.appendChild(blocks[id]);
+    });
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   await populateCurrencySelectors();
+  loadCurrencyOrder();
+  createDragHandles();
 
-  // restaura timestamp salvo
-  try {
-    const savedUpdate = JSON.parse(localStorage.getItem("valora_last_update"));
-    if (savedUpdate?.timestamp) {
-      const isStale = (Date.now() - savedUpdate.timestamp > 86400000);
-      updateTimestamp(savedUpdate.timestamp, isStale);
-    }
-  } catch (e) {
-    console.warn("Failed to load last update timestamp");
-  }
+  const lastUpdate = JSON.parse(localStorage.getItem("valora_last_update"));
+  if (lastUpdate?.timestamp) updateTimestamp(lastUpdate.timestamp);
 
   selectors.forEach((selId, index) => {
-    const select = document.getElementById(selId);
-    select.addEventListener("change", async () => {
-      const selected = select.value;
-      updateFlag(index, selected);
-      updateRecentCodes(selected);
-      await saveCurrencySelections();
+    document.getElementById(selId).addEventListener("change", async () => {
+      const selected = document.getElementById(selId).value;
+      updateRecentCurrencies(selected);
+
+      const currentSelections = selectors.map(id => document.getElementById(id).value);
+      await populateCurrencySelectors();
+
+      selectors.forEach((id, idx) => {
+        document.getElementById(id).value = currentSelections[idx];
+        updateFlag(idx, currentSelections[idx]);
+      });
+
+      await saveSelections();
       if (lastEditedIndex !== null) convertFrom(lastEditedIndex);
     });
   });
 
-  inputs.forEach((inputId, index) => {
-    document.getElementById(inputId).addEventListener("input", async () => {
-      lastEditedIndex = index;
-      await saveCurrencySelections();
-      convertFrom(index);
+  // Corrigido: definir 'items'
+  const items = document.querySelectorAll(".currency");
+  items.forEach(item => {
+    const dragArea = item.querySelector(".drag-area");
+    dragArea.setAttribute("draggable", true);
+
+    dragArea.addEventListener("dragstart", e => {
+      item.classList.add("dragging");
+      e.dataTransfer.setData("text/plain", [...items].indexOf(item));
+    });
+
+    dragArea.addEventListener("dragend", () => {
+      item.classList.remove("dragging");
     });
   });
 
-  // ⚠️ Don't convert automatically on popup open.
-// Conversion will happen only when user interacts again (input or dropdown).
-// This prevents flickering and overwriting the last entered value.
-// lastEditedIndex remains null until user types or changes dropdown.
+  const grid = document.querySelector(".grid");
+  grid.addEventListener("dragover", e => {
+    e.preventDefault();
+    const dragging = document.querySelector(".currency.dragging");
+    const afterElement = getDragAfterElement(grid, e.clientY);
+    if (afterElement == null) {
+      grid.appendChild(dragging);
+    } else {
+      grid.insertBefore(dragging, afterElement);
+    }
+  });
+
+  grid.addEventListener("drop", () => {
+    saveCurrencyOrder();
+  });
+
+  function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll(".currency:not(.dragging)")];
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  inputs.forEach((inputId, index) => {
+    document.getElementById(inputId).addEventListener("input", async () => {
+      lastEditedIndex = index;
+      await saveSelections();
+      convertFrom(index);
+    });
+  });
 });

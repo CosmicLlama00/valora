@@ -18,5 +18,8 @@
     "32": "logo.png",
     "48": "logo.png",
     "96": "logo.png"
-  }
+  },
+  "host_permissions": [
+    "https://hexarate.paikama.co/*"
+  ]
 }

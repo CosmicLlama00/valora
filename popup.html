@@ -2,16 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <h1>
-    <img src="logo.png" alt="Valora Logo" style="width: 30px; height: 30px;">
-    Valora
-  </h1>
+  <title>Valora</title>
   <style>
+    html, body {
+      border-radius: 12px;
+      overflow: hidden;
+      background-color: white;
+    }
+
     body {
       font-family: Arial, sans-serif;
       width: 260px;
       margin: 10px;
     }
+
     h1 {
       font-size: 16px;
       margin-bottom: 10px;
@@ -19,24 +23,60 @@
       align-items: center;
       gap: 6px;
     }
+
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
+
     .currency {
+      display: flex;
+      align-items: stretch;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: white;
+      overflow: hidden;
+      transition: transform 150ms ease, opacity 150ms ease;
+    }
+
+    .currency.dragging {
+      opacity: 0.5;
+      transform: scale(0.98);
+    }
+
+    .drag-area {
+      background-color: #f0f0f0;
+      width: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      border-right: 1px solid #ddd;
+    }
+
+    .drag-handle {
+      writing-mode: vertical-lr;
+      transform: rotate(180deg);
+      font-size: 10px;
+      user-select: none;
+    }
+
+    .content {
+      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 5px;
+      padding: 6px;
+      box-sizing: border-box;
     }
+
     .currency img {
       width: 24px;
       height: 16px;
       margin-bottom: 4px;
     }
+
     .currency select,
     .currency input {
       width: 90px;
@@ -45,7 +85,6 @@
       margin-top: 5px;
     }
 
-    /* Alinhar as opções do dropdown à esquerda */
     select {
       text-align: left !important;
     }
@@ -59,28 +98,46 @@
   </style>
 </head>
 <body>
+  <h1>
+    <img src="logo.png" alt="Valora Logo" style="width: 30px; height: 30px;">
+    Valora
+  </h1>
+
   <div class="grid">
     <div class="currency">
-      <img id="flag1" src="" alt="Flag">
-      <select id="currency1"></select>
-      <input type="number" id="value1" placeholder="0">
+      <div class="drag-area"><div class="drag-handle">⋮⋮</div></div>
+      <div class="content">
+        <img id="flag1" src="" alt="Flag">
+        <select id="currency1"></select>
+        <input type="number" id="value1" placeholder="0">
+      </div>
     </div>
     <div class="currency">
-      <img id="flag2" src="" alt="Flag">
-      <select id="currency2"></select>
-      <input type="number" id="value2" placeholder="0">
+      <div class="drag-area"><div class="drag-handle">⋮⋮</div></div>
+      <div class="content">
+        <img id="flag2" src="" alt="Flag">
+        <select id="currency2"></select>
+        <input type="number" id="value2" placeholder="0">
+      </div>
     </div>
     <div class="currency">
-      <img id="flag3" src="" alt="Flag">
-      <select id="currency3"></select>
-      <input type="number" id="value3" placeholder="0">
+      <div class="drag-area"><div class="drag-handle">⋮⋮</div></div>
+      <div class="content">
+        <img id="flag3" src="" alt="Flag">
+        <select id="currency3"></select>
+        <input type="number" id="value3" placeholder="0">
+      </div>
     </div>
     <div class="currency">
-      <img id="flag4" src="" alt="Flag">
-      <select id="currency4"></select>
-      <input type="number" id="value4" placeholder="0">
+      <div class="drag-area"><div class="drag-handle">⋮⋮</div></div>
+      <div class="content">
+        <img id="flag4" src="" alt="Flag">
+        <select id="currency4"></select>
+        <input type="number" id="value4" placeholder="0">
+      </div>
     </div>
   </div>
+
   <div class="timestamp" id="timestamp">Updated on --/--/---- --:--</div>
 
   <script src="popup.js"></script>
