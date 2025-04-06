@@ -196,7 +196,7 @@ function formatNumber(value) {
   if (isNaN(number)) return "";
 
   const locale = navigator.language || "en-US";
-  const hasDecimals = !Number.isInteger(number);
+  const hasDecimals = !(Math.floor(number) === number);
   return number.toLocaleString(locale, {
     minimumFractionDigits: hasDecimals ? 2 : 0,
     maximumFractionDigits: 2
@@ -399,7 +399,8 @@ async function fetchRate(from, to) {
 
 async function convertFrom(index) {
   const base = document.getElementById(selectors[index]).value;
-  const baseValue = parseFloat(document.getElementById(inputs[index]).value);
+  const baseRaw = document.getElementById(inputs[index]).value;
+  const baseValue = parseFloat(baseRaw.replace(/[^0-9.-]/g, ""));
   if (isNaN(baseValue)) return;
 
   await Promise.all(selectors.map(async (id, i) => {
@@ -409,9 +410,7 @@ async function convertFrom(index) {
       if (result.rate) {
         const rawValue = baseValue * result.rate;
         const input = document.getElementById(inputs[i]);
-        if (document.activeElement !== input) {
-          input.blur(); // tira o foco se o usuário não estiver digitando nele
-        }
+        if (document.activeElement !== input) input.blur();
         input.value = formatNumber(rawValue);
         updateTimestamp(result.timestamp, result.isStale);
       }
@@ -425,7 +424,6 @@ function createDragHandles() {
   const containers = document.querySelectorAll(".currency");
   containers.forEach((el, index) => {
     const dragArea = el.querySelector(".drag-area");
-
     dragArea.setAttribute("draggable", true);
     dragArea.dataset.index = index;
 
@@ -436,22 +434,6 @@ function createDragHandles() {
 
     dragArea.addEventListener("dragend", () => {
       el.classList.remove("dragging");
-    });
-  });
-
-  const grid = document.querySelector(".grid");
-  grid.querySelectorAll(".currency").forEach(el => {
-    el.addEventListener("dragover", e => e.preventDefault());
-    el.addEventListener("drop", e => {
-      e.preventDefault();
-      const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-      const fromEl = grid.children[fromIndex];
-      const toIndex = [...grid.children].indexOf(el);
-      if (fromIndex !== toIndex) {
-        grid.insertBefore(fromEl, fromIndex < toIndex ? el.nextSibling : el);
-        saveCurrencyOrder();
-        createDragHandles();
-      }
     });
   });
 }
@@ -503,72 +485,47 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // Corrigido: definir 'items'
-  const items = document.querySelectorAll(".currency");
-  items.forEach(item => {
-    const dragArea = item.querySelector(".drag-area");
-    dragArea.setAttribute("draggable", true);
-
-    dragArea.addEventListener("dragstart", e => {
-      item.classList.add("dragging");
-      e.dataTransfer.setData("text/plain", [...items].indexOf(item));
-    });
-
-    dragArea.addEventListener("dragend", () => {
-      item.classList.remove("dragging");
-    });
-  });
-
   const grid = document.querySelector(".grid");
+
   grid.addEventListener("dragover", e => {
     e.preventDefault();
+  });
+
+  grid.addEventListener("drop", e => {
+    e.preventDefault();
     const dragging = document.querySelector(".currency.dragging");
-    const afterElement = getDragAfterElement(grid, e.clientY);
-    if (afterElement == null) {
-      grid.appendChild(dragging);
-    } else {
-      grid.insertBefore(dragging, afterElement);
+    const dropTarget = e.target.closest(".currency");
+
+    if (dragging && dropTarget && dragging !== dropTarget) {
+      const children = [...grid.children];
+      const fromIndex = children.indexOf(dragging);
+      const toIndex = children.indexOf(dropTarget);
+
+      if (fromIndex < toIndex) {
+        grid.insertBefore(dragging, dropTarget.nextSibling);
+      } else {
+        grid.insertBefore(dragging, dropTarget);
+      }
+
+      saveCurrencyOrder();
+      createDragHandles();
     }
   });
 
-  grid.addEventListener("drop", () => {
-    saveCurrencyOrder();
-  });
+  inputs.forEach((inputId, index) => {
+    let typingTimeout;
+    const input = document.getElementById(inputId);
+    input.addEventListener("input", () => {
+      lastEditedIndex = index;
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        convertFrom(index);
+      }, 500);
+    });
 
-  function getDragAfterElement(container, y) {
-    const draggableElements = [...container.querySelectorAll(".currency:not(.dragging)")];
-    return draggableElements.reduce((closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) {
-        return { offset: offset, element: child };
-      } else {
-        return closest;
-      }
-    }, { offset: Number.NEGATIVE_INFINITY }).element;
-  }
-
-  // 1. Delay na digitação para evitar lentidão
-inputs.forEach((inputId, index) => {
-  let typingTimeout;
-  const input = document.getElementById(inputId);
-  input.addEventListener("input", () => {
-    lastEditedIndex = index;
-    clearTimeout(typingTimeout);
-
-    typingTimeout = setTimeout(() => {
-      convertFrom(index);
-    }, 500);
+    input.addEventListener("blur", () => {
+      const raw = input.value.replace(/[^0-9.-]/g, "");
+      input.value = formatNumber(raw);
+    });
   });
 });
-
-// 2. Formatar número ao sair do campo
-inputs.forEach((inputId) => {
-  const input = document.getElementById(inputId);
-
-  input.addEventListener("blur", () => {
-    const raw = input.value.replace(/[^0-9.-]/g, "");
-  input.value = formatNumber(raw);
-  });
-});
-})
